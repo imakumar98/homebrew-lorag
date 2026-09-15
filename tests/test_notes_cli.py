@@ -81,6 +81,27 @@ class NoteExportTests(unittest.TestCase):
         ):
             notes_cli.parse_export_payload(payload)
 
+    def test_parse_export_payload_rejects_negative_skipped_count(self):
+        payload = json.dumps({"notes": [], "skipped": -1})
+
+        with self.assertRaises(notes_cli.NotesExportError):
+            notes_cli.parse_export_payload(payload)
+
+    def test_parse_export_payload_rejects_empty_and_duplicate_note_ids(self):
+        invalid_notes = [
+            [{"id": "", "title": "Title", "body": "Body"}],
+            [
+                {"id": "duplicate", "title": "First", "body": "Body"},
+                {"id": "duplicate", "title": "Second", "body": "Body"},
+            ],
+        ]
+
+        for notes in invalid_notes:
+            with self.subTest(notes=notes):
+                payload = json.dumps({"notes": notes, "skipped": 0})
+                with self.assertRaises(notes_cli.NotesExportError):
+                    notes_cli.parse_export_payload(payload)
+
     def test_note_filename_is_stable_and_hides_note_id(self):
         note_id = "x-coredata://private-id"
         filename = notes_cli.note_filename(note_id)
@@ -127,6 +148,36 @@ class NoteExportTests(unittest.TestCase):
                 with self.assertRaisesRegex(OSError, "disk full"):
                     notes_cli.write_export(
                         [notes_cli.AppleNote("1", "Title", "Body")],
+                        export_dir,
+                    )
+
+            self.assertEqual(old_export.read_text(encoding="utf-8"), "old")
+            self.assertEqual(
+                list(export_dir.parent.glob(".apple-notes-*")),
+                [],
+            )
+
+    def test_write_export_restores_old_export_when_final_replace_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            export_dir = root / "docs" / "apple-notes"
+            export_dir.mkdir(parents=True)
+            old_export = export_dir / "old.txt"
+            old_export.write_text("old", encoding="utf-8")
+            original_replace = Path.replace
+            failed = False
+
+            def fail_first_replace_to_export(source, target):
+                nonlocal failed
+                if target == export_dir and not failed:
+                    failed = True
+                    raise OSError("rename failed")
+                return original_replace(source, target)
+
+            with patch.object(Path, "replace", new=fail_first_replace_to_export):
+                with self.assertRaisesRegex(OSError, "rename failed"):
+                    notes_cli.write_export(
+                        [notes_cli.AppleNote("1", "Title", "New body")],
                         export_dir,
                     )
 

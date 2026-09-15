@@ -31,10 +31,12 @@ def parse_export_payload(payload: str) -> tuple[list[AppleNote], int]:
             not isinstance(raw_notes, list)
             or not isinstance(skipped, int)
             or isinstance(skipped, bool)
+            or skipped < 0
         ):
             raise TypeError
 
         notes = []
+        note_ids = set()
         for item in raw_notes:
             if not isinstance(item, dict) or set(item) != {"id", "title", "body"}:
                 raise TypeError
@@ -43,6 +45,9 @@ def parse_export_payload(payload: str) -> tuple[list[AppleNote], int]:
             body = item["body"]
             if not all(isinstance(value, str) for value in (note_id, title, body)):
                 raise TypeError
+            if not note_id or note_id in note_ids:
+                raise TypeError
+            note_ids.add(note_id)
             notes.append(AppleNote(note_id, title, body))
         return notes, skipped
     except (KeyError, TypeError, ValueError) as error:
@@ -57,6 +62,7 @@ def note_filename(note_id: str) -> str:
 def write_export(notes: list[AppleNote], export_dir: Path) -> None:
     export_dir.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=".apple-notes-", dir=export_dir.parent))
+    backup = None
     try:
         for note in notes:
             content = f"Title: {note.title.strip()}\n\n{note.body.strip()}\n"
@@ -65,8 +71,22 @@ def write_export(notes: list[AppleNote], export_dir: Path) -> None:
                 encoding="utf-8",
             )
         if export_dir.exists():
-            shutil.rmtree(export_dir)
-        staging.replace(export_dir)
+            backup = Path(
+                tempfile.mkdtemp(
+                    prefix=".apple-notes-backup-",
+                    dir=export_dir.parent,
+                )
+            )
+            backup.rmdir()
+            export_dir.replace(backup)
+        try:
+            staging.replace(export_dir)
+        except Exception:
+            if backup is not None:
+                backup.replace(export_dir)
+            raise
+        if backup is not None:
+            shutil.rmtree(backup)
     except Exception:
         shutil.rmtree(staging, ignore_errors=True)
         raise
