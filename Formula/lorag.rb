@@ -534,11 +534,19 @@ class Lorag < Formula
   end
 
   def install
-    venv = virtualenv_create(libexec, "python3.14")
+    virtualenv_create(libexec, "python3.14")
+    venv_python = libexec/"bin/python"
+    wheels = buildpath/"_wheels"
+    wheels.mkpath
     resources.each do |r|
-      venv.pip_install r.cached_download
+      dest = wheels/File.basename(r.url)
+      cp r.cached_download, dest
+      system "python3.14", "-m", "pip", "--python=#{venv_python}",
+             "install", "--no-deps", "--ignore-installed", dest
     end
-    venv.pip_install_and_link buildpath
+    system "python3.14", "-m", "pip", "--python=#{venv_python}",
+           "install", "--no-deps", "--ignore-installed", buildpath
+    bin.install_symlink libexec/"bin/lorag"
   end
 
   def caveats
