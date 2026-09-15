@@ -8,7 +8,7 @@ Drop `.txt`, `.md`, and `.pdf` files into `~/lorag/docs`, sync Notes, then ask:
 lorag q What did I write about the Q3 plan?
 ```
 
-macOS only (Apple Silicon). Install with Homebrew; you do not need a clone on PATH.
+macOS only. Install with Homebrew; you do not need a clone on PATH.
 
 ## How it works
 
