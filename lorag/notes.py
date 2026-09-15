@@ -11,10 +11,11 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from lorag.paths import LoragPaths
 
-PROJECT_ROOT = Path(__file__).resolve().parent
-DEFAULT_EXPORT_DIR = PROJECT_ROOT / "docs" / "apple-notes"
-DEFAULT_DB_DIR = PROJECT_ROOT / "db"
+_default_paths = LoragPaths.from_home(Path.home())
+DEFAULT_EXPORT_DIR = _default_paths.notes_dir
+DEFAULT_DB_DIR = _default_paths.db_dir
 
 
 _NOTES_EXPORT_JXA = r"""
@@ -160,7 +161,7 @@ def rebuild_index(
     db_dir: Path,
     embed_model: str = "nomic-embed-text",
 ) -> None:
-    import main as rag
+    from lorag import rag
 
     rag.get_vectorstore(docs_dir, db_dir, embed_model)
 

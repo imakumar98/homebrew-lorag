@@ -11,13 +11,11 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_ollama import ChatOllama, OllamaEmbeddings
 from langchain_chroma import Chroma
 
-DOCS_DIR = "./docs" # Source docs folder
-DB_DIR = "./db" # Persisted Chroma DB folder
-CHAT_MODEL = "qwen3.5:4b" # Ollama chat model
-EMBED_MODEL = "nomic-embed-text" # Ollama embedding model
 RETRIEVAL_K = 5 # Chunks retrieved per query. Increase if answers feel incomplete
 CHUNK_SIZE = 1000 # Max chars per chunk. Try 500 for tighter answers, 2000 for more context
 CHUNK_OVERLAP = 200 # Chars shared between chunks. Prevents key ideas from being split.
+EMBED_BATCH_SIZE = 32
+EMBED_BATCH_RETRIES = 3
 SYSTEM_PROMPT = (
     "You are an assistant for question-answering tasks. "
     "Use the following context to answer the user's question. "
@@ -42,8 +40,36 @@ def load_documents(docs_dir: Path):
     return docs
 
 
+class BatchedEmbeddings:
+    def __init__(self, inner, batch_size: int = EMBED_BATCH_SIZE):
+        self._inner = inner
+        self.batch_size = batch_size
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
+        size = max(1, self.batch_size)
+        vectors: list[list[float]] = []
+        for start in range(0, len(texts), size):
+            batch = texts[start:start + size]
+            last_error: Exception | None = None
+            for _ in range(EMBED_BATCH_RETRIES):
+                try:
+                    vectors.extend(self._inner.embed_documents(batch))
+                    break
+                except Exception as error:
+                    last_error = error
+            else:
+                assert last_error is not None
+                raise last_error
+        return vectors
+
+    def embed_query(self, text: str) -> list[float]:
+        return self._inner.embed_query(text)
+
+
 def get_vectorstore(docs_dir: Path, db_dir: Path, embed_model: str):
-    embeddings = OllamaEmbeddings(model=embed_model)
+    embeddings = BatchedEmbeddings(OllamaEmbeddings(model=embed_model))
     persist = str(db_dir)
     if Path(db_dir).exists():
         print(f"Reusing existing data {db_dir} for embeddings...")
@@ -128,7 +154,7 @@ def answer_question(
     chat_model: str,
 ) -> tuple[str, list[str]]:
     if not Path(db_dir).exists():
-        raise QuestionError("No index found. Run `sift init` or `sift sync`.")
+        raise QuestionError("No index found. Run `lorag init` or `lorag sync`.")
 
     try:
         vector_store = get_vectorstore(docs_dir, db_dir, embed_model)
@@ -147,7 +173,7 @@ def answer_question(
             ) from error
         if "model" in text and "not found" in text:
             raise QuestionError(
-                "Chat model is missing. Run `sift model use <name>`."
+                "Chat model is missing. Run `lorag model use <name>`."
             ) from error
         raise
 
@@ -163,9 +189,12 @@ def answer_question(
 
 
 def main():
-    # Build retrieval backend and agent
-    vector_store = get_vectorstore(Path(DOCS_DIR), Path(DB_DIR), EMBED_MODEL)
-    agent = build_agent(vector_store, CHAT_MODEL)
+    from lorag.paths import LoragPaths, load_config
+
+    paths = LoragPaths.from_home(Path.home())
+    config = load_config(paths)
+    vector_store = get_vectorstore(paths.docs_dir, paths.db_dir, config.embed_model)
+    agent = build_agent(vector_store, config.chat_model)
 
     print("\nReady! Ask questions about your documents.\n")
 

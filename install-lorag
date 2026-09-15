@@ -2,22 +2,20 @@
 set -eu
 
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-WRAPPER="$HOME/.local/bin/sift"
-VENV="$ROOT/venv"
-PYTHONPATH_LINE="export PYTHONPATH=\"$ROOT\""
 
 if [ "$(uname -s)" != "Darwin" ]; then
-    echo "Error: sift install is macOS-only." >&2
+    echo "Error: lorag install is macOS-only." >&2
     exit 1
 fi
 
 if ! command -v brew >/dev/null 2>&1; then
-    echo "Error: Homebrew is required. Install it from https://brew.sh then re-run ./install-helper." >&2
+    echo "Error: Homebrew is required. Install it from https://brew.sh then re-run ./install-lorag." >&2
     exit 1
 fi
 
 brew list python >/dev/null 2>&1 || brew install python
 brew list ollama >/dev/null 2>&1 || brew install ollama
+brew list pipx >/dev/null 2>&1 || brew install pipx
 
 if ! ollama list >/dev/null 2>&1; then
     brew services start ollama
@@ -30,7 +28,7 @@ if ! ollama list >/dev/null 2>&1; then
         sleep 1
     done
     if ! ollama list >/dev/null 2>&1; then
-        echo "Error: Ollama did not start. Open the Ollama app and re-run ./install-helper." >&2
+        echo "Error: Ollama did not start. Open the Ollama app and re-run ./install-lorag." >&2
         exit 1
     fi
 fi
@@ -38,18 +36,9 @@ fi
 ollama pull llama3.2:3b
 ollama pull nomic-embed-text
 
-if [ ! -x "$VENV/bin/python" ]; then
-    python3 -m venv "$VENV"
-fi
-"$VENV/bin/pip" install -r "$ROOT/requirements.txt"
-
-mkdir -p "$(dirname "$WRAPPER")"
-cat > "$WRAPPER" <<EOF
-#!/bin/sh
-export PYTHONPATH="$ROOT"
-exec "$VENV/bin/python" -m sift "\$@"
-EOF
-chmod +x "$WRAPPER"
+pipx ensurepath
+export PATH="$HOME/.local/bin:$PATH"
+pipx install "$ROOT" --force
 
 case ":$PATH:" in
     *":$HOME/.local/bin:"*) ;;
@@ -59,5 +48,4 @@ case ":$PATH:" in
         ;;
 esac
 
-export PYTHONPATH="$ROOT"
-"$VENV/bin/python" -m sift init
+lorag init

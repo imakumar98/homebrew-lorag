@@ -2,20 +2,18 @@ import hashlib
 import io
 import json
 import subprocess
-import sys
 import tempfile
-import types
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-import notes_cli
+from lorag import notes as notes_cli
 
 
 class NoteExportTests(unittest.TestCase):
-    @patch("notes_cli.subprocess.run")
+    @patch("lorag.notes.subprocess.run")
     def test_fetch_notes_runs_jxa_and_returns_export(self, run):
         run.return_value = Mock(
             stdout=json.dumps(
@@ -28,7 +26,7 @@ class NoteExportTests(unittest.TestCase):
             )
         )
 
-        with patch("notes_cli.sys.platform", "darwin"):
+        with patch("lorag.notes.sys.platform", "darwin"):
             notes, skipped = notes_cli.fetch_notes()
 
         self.assertEqual(
@@ -61,9 +59,9 @@ class NoteExportTests(unittest.TestCase):
             {"check": True, "capture_output": True, "text": True},
         )
 
-    @patch("notes_cli.subprocess.run")
+    @patch("lorag.notes.subprocess.run")
     def test_fetch_notes_rejects_non_macos_without_subprocess(self, run):
-        with patch("notes_cli.sys.platform", "linux"):
+        with patch("lorag.notes.sys.platform", "linux"):
             with self.assertRaisesRegex(
                 notes_cli.NotesExportError,
                 "macOS-only",
@@ -72,16 +70,16 @@ class NoteExportTests(unittest.TestCase):
 
         run.assert_not_called()
 
-    @patch("notes_cli.subprocess.run", side_effect=FileNotFoundError)
+    @patch("lorag.notes.subprocess.run", side_effect=FileNotFoundError)
     def test_fetch_notes_reports_missing_osascript(self, run):
-        with patch("notes_cli.sys.platform", "darwin"):
+        with patch("lorag.notes.sys.platform", "darwin"):
             with self.assertRaisesRegex(
                 notes_cli.NotesExportError,
                 "osascript is unavailable",
             ):
                 notes_cli.fetch_notes()
 
-    @patch("notes_cli.subprocess.run")
+    @patch("lorag.notes.subprocess.run")
     def test_fetch_notes_reports_automation_permission_failure(self, run):
         authorization_errors = [
             "execution error: Not authorized to send Apple events. (-1743)",
@@ -96,7 +94,7 @@ class NoteExportTests(unittest.TestCase):
                     ["osascript"],
                     stderr=stderr,
                 )
-                with patch("notes_cli.sys.platform", "darwin"):
+                with patch("lorag.notes.sys.platform", "darwin"):
                     with self.assertRaises(notes_cli.NotesExportError) as caught:
                         notes_cli.fetch_notes()
 
@@ -107,7 +105,7 @@ class NoteExportTests(unittest.TestCase):
                 )
                 self.assertNotIn(stderr, message)
 
-    @patch("notes_cli.subprocess.run")
+    @patch("lorag.notes.subprocess.run")
     def test_fetch_notes_reports_safe_generic_automation_failure(self, run):
         stderr = "Notes failed while reading private note content"
         run.side_effect = subprocess.CalledProcessError(
@@ -116,7 +114,7 @@ class NoteExportTests(unittest.TestCase):
             stderr=stderr,
         )
 
-        with patch("notes_cli.sys.platform", "darwin"):
+        with patch("lorag.notes.sys.platform", "darwin"):
             with self.assertRaises(notes_cli.NotesExportError) as caught:
                 notes_cli.fetch_notes()
 
@@ -125,11 +123,11 @@ class NoteExportTests(unittest.TestCase):
         self.assertNotIn(stderr, message)
         self.assertNotIn("System Settings", message)
 
-    @patch("notes_cli.subprocess.run")
+    @patch("lorag.notes.subprocess.run")
     def test_fetch_notes_rejects_invalid_stdout(self, run):
         run.return_value = Mock(stdout="not json")
 
-        with patch("notes_cli.sys.platform", "darwin"):
+        with patch("lorag.notes.sys.platform", "darwin"):
             with self.assertRaisesRegex(
                 notes_cli.NotesExportError,
                 "^Notes returned invalid export data\\.$",
@@ -313,14 +311,17 @@ class NoteExportTests(unittest.TestCase):
                 [],
             )
 
-    def test_project_defaults_are_relative_to_module(self):
-        project_root = Path(notes_cli.__file__).resolve().parent
+    def test_project_defaults_use_lorag_home_layout(self):
+        home = Path.home()
 
-        self.assertEqual(notes_cli.DEFAULT_EXPORT_DIR, project_root / "docs" / "apple-notes")
-        self.assertEqual(notes_cli.DEFAULT_DB_DIR, project_root / "db")
+        self.assertEqual(
+            notes_cli.DEFAULT_EXPORT_DIR,
+            home / "lorag" / "docs" / "apple-notes",
+        )
+        self.assertEqual(notes_cli.DEFAULT_DB_DIR, home / "lorag" / "database")
 
     def test_gitignore_protects_transaction_artifacts(self):
-        project_root = Path(notes_cli.__file__).resolve().parent
+        project_root = Path(__file__).resolve().parents[1]
         patterns = (project_root / ".gitignore").read_text(encoding="utf-8").splitlines()
 
         self.assertIn("docs/.apple-notes-*", patterns)
@@ -328,16 +329,14 @@ class NoteExportTests(unittest.TestCase):
         self.assertIn(".db-staging-*", patterns)
         self.assertIn(".db-backup-*", patterns)
 
-    def test_rebuild_index_wires_paths_to_main_module(self):
-        fake_rag = types.ModuleType("main")
-        fake_rag.get_vectorstore = Mock(return_value=object())
+    def test_rebuild_index_wires_paths_to_rag_module(self):
         docs_dir = Path("/tmp/project/docs")
         db_dir = Path("/tmp/project/db")
 
-        with patch.dict(sys.modules, {"main": fake_rag}):
+        with patch("lorag.rag.get_vectorstore", return_value=object()) as get_vs:
             notes_cli.rebuild_index(docs_dir, db_dir, "nomic-embed-text")
 
-        fake_rag.get_vectorstore.assert_called_once_with(
+        get_vs.assert_called_once_with(
             docs_dir,
             db_dir,
             "nomic-embed-text",
@@ -378,7 +377,7 @@ class NoteExportTests(unittest.TestCase):
                 staging_db_dir.mkdir()
                 (staging_db_dir / "new-index").write_text("new", encoding="utf-8")
 
-            with patch("notes_cli.write_export", side_effect=export):
+            with patch("lorag.notes.write_export", side_effect=export):
                 exported, skipped = notes_cli.sync_notes(
                     export_dir,
                     db_dir,
@@ -496,8 +495,8 @@ class NoteExportTests(unittest.TestCase):
                 staging_db_dir.mkdir()
 
             with (
-                patch("notes_cli.fetch_notes", return_value=([], 4)) as fetch,
-                patch("notes_cli.rebuild_index", side_effect=rebuild) as rebuild_mock,
+                patch("lorag.notes.fetch_notes", return_value=([], 4)) as fetch,
+                patch("lorag.notes.rebuild_index", side_effect=rebuild) as rebuild_mock,
             ):
                 result = notes_cli.sync_notes(export_dir, db_dir)
 
@@ -534,7 +533,7 @@ class NoteExportTests(unittest.TestCase):
             marker.write_text("old", encoding="utf-8")
             rebuild = Mock()
 
-            with patch("notes_cli.write_export", side_effect=OSError("disk full")):
+            with patch("lorag.notes.write_export", side_effect=OSError("disk full")):
                 with self.assertRaisesRegex(
                     notes_cli.NotesExportError,
                     "^Apple Notes export failed\\.$",
@@ -581,7 +580,7 @@ class NoteExportTests(unittest.TestCase):
         stdout = io.StringIO()
         note_content = "Secret title and body"
 
-        with patch("notes_cli.sync_notes", return_value=(4, 1)):
+        with patch("lorag.notes.sync_notes", return_value=(4, 1)):
             with redirect_stdout(stdout):
                 result = notes_cli.main(["sync"])
 
@@ -597,7 +596,7 @@ class NoteExportTests(unittest.TestCase):
         safe_message = "Notes were exported, but the index rebuild failed."
 
         with patch(
-            "notes_cli.sync_notes",
+            "lorag.notes.sync_notes",
             side_effect=notes_cli.NotesExportError(safe_message),
         ):
             with redirect_stdout(stdout), redirect_stderr(stderr):

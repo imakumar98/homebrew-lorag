@@ -5,11 +5,11 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from sift import cli
-from sift.paths import load_config
+from lorag import cli
+from lorag.paths import load_config
 
 
-class SiftCliTests(unittest.TestCase):
+class LoragCliTests(unittest.TestCase):
     def test_init_creates_layout_and_runs_sync(self):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
@@ -33,17 +33,17 @@ class SiftCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
             cli.main(["init"], home=home, sync_notes=Mock(return_value=(0, 0)))
-            from sift.paths import set_chat_model, SiftPaths
+            from lorag.paths import set_chat_model, LoragPaths
 
-            set_chat_model(SiftPaths.from_home(home), "qwen3.5:4b")
+            set_chat_model(LoragPaths.from_home(home), "qwen3.5:4b")
             cli.main(["init"], home=home, sync_notes=Mock(return_value=(0, 0)))
             self.assertEqual(
-                load_config(SiftPaths.from_home(home)).chat_model,
+                load_config(LoragPaths.from_home(home)).chat_model,
                 "qwen3.5:4b",
             )
 
     def test_sync_reports_notes_error_to_stderr(self):
-        import notes_cli
+        from lorag.notes import NotesExportError
 
         stderr = io.StringIO()
         with tempfile.TemporaryDirectory() as directory:
@@ -52,7 +52,7 @@ class SiftCliTests(unittest.TestCase):
                     ["sync"],
                     home=Path(directory),
                     sync_notes=Mock(
-                        side_effect=notes_cli.NotesExportError(
+                        side_effect=NotesExportError(
                             "Apple Notes sync is macOS-only."
                         )
                     ),
@@ -61,21 +61,21 @@ class SiftCliTests(unittest.TestCase):
         self.assertEqual(result, 1)
         self.assertIn("Apple Notes sync is macOS-only.", stderr.getvalue())
 
-    def test_question_joins_remaining_args(self):
+    def test_q_joins_remaining_args(self):
         stdout = io.StringIO()
         ask = Mock(return_value=("Fee is waived", ["/tmp/a.txt"]))
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
-            from sift.paths import SiftPaths, ensure_layout, write_default_config
+            from lorag.paths import LoragPaths, ensure_layout, write_default_config
 
-            paths = SiftPaths.from_home(home)
+            paths = LoragPaths.from_home(home)
             ensure_layout(paths)
             write_default_config(paths)
             paths.db_dir.mkdir()
 
             with redirect_stdout(stdout):
                 result = cli.main(
-                    ["question", "What", "is", "ACATS?"],
+                    ["q", "What", "is", "ACATS?"],
                     home=home,
                     ask=ask,
                 )
@@ -86,27 +86,27 @@ class SiftCliTests(unittest.TestCase):
         self.assertIn("Fee is waived", stdout.getvalue())
         self.assertIn("/tmp/a.txt", stdout.getvalue())
 
-    def test_question_without_index_prints_helper_error(self):
-        import main as rag
+    def test_q_without_index_prints_helper_error(self):
+        from lorag.rag import QuestionError
 
         stderr = io.StringIO()
         with tempfile.TemporaryDirectory() as directory:
             with redirect_stderr(stderr):
                 result = cli.main(
-                    ["question", "hello"],
+                    ["q", "hello"],
                     home=Path(directory),
-                    ask=Mock(side_effect=rag.QuestionError(
-                        "No index found. Run `sift init` or `sift sync`."
+                    ask=Mock(side_effect=QuestionError(
+                        "No index found. Run `lorag init` or `lorag sync`."
                     )),
                 )
 
         self.assertEqual(result, 1)
-        self.assertIn("sift init", stderr.getvalue())
+        self.assertIn("lorag init", stderr.getvalue())
 
-    def test_question_without_query_is_an_error(self):
+    def test_q_without_query_is_an_error(self):
         with redirect_stderr(io.StringIO()):
             with self.assertRaisesRegex(SystemExit, "2"):
-                cli.main(["question"])
+                cli.main(["q"])
 
     def test_model_prints_current_chat_model(self):
         stdout = io.StringIO()

@@ -6,3 +6,7 @@ docs/.apple-notes-backup-*
 .db-backup-*
 __pycache__/
 .worktrees/
+*.egg-info/
+dist/
+build/
+venv/

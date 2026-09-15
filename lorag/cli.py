@@ -6,10 +6,10 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
-import notes_cli
-import main as rag
-from sift.paths import (
-    SiftPaths,
+from lorag import notes as notes_cli
+from lorag import rag
+from lorag.paths import (
+    LoragPaths,
     ensure_layout,
     load_config,
     set_chat_model,
@@ -26,8 +26,8 @@ PullModel = Callable[[str], None]
 Ask = Callable[..., tuple[str, list[str]]]
 
 
-def paths_for(home: Path) -> SiftPaths:
-    return SiftPaths.from_home(home)
+def paths_for(home: Path) -> LoragPaths:
+    return LoragPaths.from_home(home)
 
 
 def pull_ollama_model(name: str) -> None:
@@ -40,7 +40,7 @@ def pull_ollama_model(name: str) -> None:
         )
     except FileNotFoundError as error:
         raise ModelPullError(
-            "Ollama is not installed. Run ./install-helper."
+            "Ollama is not installed. Run ./install-lorag."
         ) from error
     except subprocess.CalledProcessError as error:
         raise ModelPullError(
@@ -48,13 +48,13 @@ def pull_ollama_model(name: str) -> None:
         ) from error
 
 
-def cmd_init(paths: SiftPaths, sync_notes: SyncNotes) -> int:
+def cmd_init(paths: LoragPaths, sync_notes: SyncNotes) -> int:
     ensure_layout(paths)
     write_default_config(paths)
     return cmd_sync(paths, sync_notes)
 
 
-def cmd_sync(paths: SiftPaths, sync_notes: SyncNotes) -> int:
+def cmd_sync(paths: LoragPaths, sync_notes: SyncNotes) -> int:
     try:
         exported, skipped = sync_notes(paths.notes_dir, paths.db_dir)
     except notes_cli.NotesExportError as error:
@@ -64,7 +64,7 @@ def cmd_sync(paths: SiftPaths, sync_notes: SyncNotes) -> int:
     return 0
 
 
-def cmd_question(paths: SiftPaths, query: str, ask: Ask) -> int:
+def cmd_question(paths: LoragPaths, query: str, ask: Ask) -> int:
     config = load_config(paths)
     try:
         answer, sources = ask(
@@ -86,12 +86,12 @@ def cmd_question(paths: SiftPaths, query: str, ask: Ask) -> int:
     return 0
 
 
-def cmd_model(paths: SiftPaths) -> int:
+def cmd_model(paths: LoragPaths) -> int:
     print(load_config(paths).chat_model)
     return 0
 
 
-def cmd_model_use(paths: SiftPaths, name: str, pull_model: PullModel) -> int:
+def cmd_model_use(paths: LoragPaths, name: str, pull_model: PullModel) -> int:
     try:
         pull_model(name)
     except ModelPullError as error:
@@ -110,12 +110,12 @@ def main(
     pull_model: PullModel | None = None,
     ask: Ask | None = None,
 ) -> int:
-    parser = argparse.ArgumentParser(prog="sift")
+    parser = argparse.ArgumentParser(prog="lorag")
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("init")
     sub.add_parser("sync")
-    question = sub.add_parser("question")
+    question = sub.add_parser("q")
     question.add_argument("query", nargs="+")
     model = sub.add_parser("model")
     model_sub = model.add_subparsers(dest="model_command")
@@ -132,7 +132,7 @@ def main(
         return cmd_init(paths, sync_fn)
     if args.command == "sync":
         return cmd_sync(paths, sync_fn)
-    if args.command == "question":
+    if args.command == "q":
         return cmd_question(paths, " ".join(args.query), ask_fn)
     if args.command == "model" and args.model_command == "use":
         return cmd_model_use(paths, args.name, pull_fn)

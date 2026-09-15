@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-import main as rag
+import lorag.rag as rag
 
 
 class AnswerQuestionTests(unittest.TestCase):
@@ -13,7 +13,7 @@ class AnswerQuestionTests(unittest.TestCase):
 
             with self.assertRaisesRegex(
                 rag.QuestionError,
-                r"No index found\. Run `sift init` or `sift sync`\.",
+                r"No index found\. Run `lorag init` or `lorag sync`\.",
             ):
                 rag.answer_question(
                     "What is ACATS?",
@@ -101,7 +101,7 @@ class AnswerQuestionTests(unittest.TestCase):
 
             with self.assertRaisesRegex(
                 rag.QuestionError,
-                r"Chat model is missing\. Run `sift model use <name>`\.",
+                r"Chat model is missing\. Run `lorag model use <name>`\.",
             ):
                 rag.answer_question(
                     "What is ACATS?",
