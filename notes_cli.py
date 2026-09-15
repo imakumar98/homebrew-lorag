@@ -36,7 +36,7 @@ def parse_export_payload(payload: str) -> tuple[list[AppleNote], int]:
 
         notes = []
         for item in raw_notes:
-            if not isinstance(item, dict):
+            if not isinstance(item, dict) or set(item) != {"id", "title", "body"}:
                 raise TypeError
             note_id = item["id"]
             title = item["title"]

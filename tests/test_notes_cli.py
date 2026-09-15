@@ -60,6 +60,27 @@ class NoteExportTests(unittest.TestCase):
                 ):
                     notes_cli.parse_export_payload(payload)
 
+    def test_parse_export_payload_rejects_extra_note_fields(self):
+        payload = json.dumps(
+            {
+                "notes": [
+                    {
+                        "id": "1",
+                        "title": "Title",
+                        "body": "Body",
+                        "account": "Private",
+                    }
+                ],
+                "skipped": 0,
+            }
+        )
+
+        with self.assertRaisesRegex(
+            notes_cli.NotesExportError,
+            "^Notes returned invalid export data\\.$",
+        ):
+            notes_cli.parse_export_payload(payload)
+
     def test_note_filename_is_stable_and_hides_note_id(self):
         note_id = "x-coredata://private-id"
         filename = notes_cli.note_filename(note_id)
