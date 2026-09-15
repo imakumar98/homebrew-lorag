@@ -45,10 +45,12 @@ class NoteExportTests(unittest.TestCase):
             ],
         )
         self.assertIn("Notes.notes()", args[0][4])
-        self.assertIn("note.passwordProtected()", args[0][4])
+        self.assertNotIn("passwordProtected", args[0][4])
         self.assertIn("String(note.id())", args[0][4])
         self.assertIn('String(note.name() || "")', args[0][4])
         self.assertIn('String(note.plaintext() || "")', args[0][4])
+        self.assertIn("catch (error)", args[0][4])
+        self.assertIn("skipped += 1", args[0][4])
         self.assertIn("JSON.stringify({notes: exported, skipped})", args[0][4])
         self.assertEqual(
             kwargs,
@@ -77,10 +79,37 @@ class NoteExportTests(unittest.TestCase):
 
     @patch("notes_cli.subprocess.run")
     def test_fetch_notes_reports_automation_permission_failure(self, run):
+        authorization_errors = [
+            "execution error: Not authorized to send Apple events. (-1743)",
+            "Notes is not authorized for automation",
+            "Operation not permitted: private note content",
+        ]
+
+        for stderr in authorization_errors:
+            with self.subTest(stderr=stderr):
+                run.side_effect = subprocess.CalledProcessError(
+                    1,
+                    ["osascript"],
+                    stderr=stderr,
+                )
+                with patch("notes_cli.sys.platform", "darwin"):
+                    with self.assertRaises(notes_cli.NotesExportError) as caught:
+                        notes_cli.fetch_notes()
+
+                message = str(caught.exception)
+                self.assertIn(
+                    "System Settings > Privacy & Security > Automation",
+                    message,
+                )
+                self.assertNotIn(stderr, message)
+
+    @patch("notes_cli.subprocess.run")
+    def test_fetch_notes_reports_safe_generic_automation_failure(self, run):
+        stderr = "Notes failed while reading private note content"
         run.side_effect = subprocess.CalledProcessError(
             1,
             ["osascript"],
-            stderr="private note content",
+            stderr=stderr,
         )
 
         with patch("notes_cli.sys.platform", "darwin"):
@@ -88,11 +117,9 @@ class NoteExportTests(unittest.TestCase):
                 notes_cli.fetch_notes()
 
         message = str(caught.exception)
-        self.assertIn(
-            "System Settings > Privacy & Security > Automation",
-            message,
-        )
-        self.assertNotIn("private note content", message)
+        self.assertEqual(message, "Apple Notes automation failed.")
+        self.assertNotIn(stderr, message)
+        self.assertNotIn("System Settings", message)
 
     @patch("notes_cli.subprocess.run")
     def test_fetch_notes_rejects_invalid_stdout(self, run):

@@ -17,10 +17,6 @@ let skipped = 0;
 
 for (const note of Notes.notes()) {
     try {
-        if (note.passwordProtected()) {
-            skipped += 1;
-            continue;
-        }
         exported.push({
             id: String(note.id()),
             title: String(note.name() || ""),
@@ -97,10 +93,15 @@ def fetch_notes() -> tuple[list[AppleNote], int]:
             "Apple Notes sync failed because osascript is unavailable."
         ) from error
     except subprocess.CalledProcessError as error:
-        raise NotesExportError(
-            "Apple Notes sync needs macOS Automation permission. Allow access "
-            "under System Settings > Privacy & Security > Automation."
-        ) from error
+        stderr = error.stderr if isinstance(error.stderr, str) else ""
+        authorization_signals = ("-1743", "not authorized", "not permitted")
+        if any(signal in stderr.lower() for signal in authorization_signals):
+            raise NotesExportError(
+                "Apple Notes sync needs macOS Automation permission. Allow "
+                "access under System Settings > Privacy & Security > "
+                "Automation."
+            ) from error
+        raise NotesExportError("Apple Notes automation failed.") from error
 
     return parse_export_payload(result.stdout)
 
