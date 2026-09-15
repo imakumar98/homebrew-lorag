@@ -65,3 +65,17 @@ class SiftPathsTests(unittest.TestCase):
 
             self.assertEqual(config.chat_model, "llama3.2:3b")
             self.assertEqual(config.embed_model, "nomic-embed-text")
+
+    def test_set_chat_model_round_trips_quote_and_backslash(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths = SiftPaths.from_home(Path(directory))
+            ensure_layout(paths)
+            write_default_config(paths)
+
+            tricky = r'org/"custom\model"'
+            set_chat_model(paths, tricky)
+
+            config = load_config(paths)
+
+            self.assertEqual(config.chat_model, tricky)
+            self.assertEqual(config.embed_model, DEFAULT_EMBED_MODEL)

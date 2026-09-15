@@ -50,26 +50,27 @@ def load_config(paths: SiftPaths) -> SiftConfig:
     )
 
 
-def write_default_config(paths: SiftPaths) -> None:
-    if paths.config_path.exists():
-        return
+def _escape_toml_string(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+
+
+def _write_config(paths: SiftPaths, config: SiftConfig) -> None:
     ensure_layout(paths)
     paths.config_path.write_text(
         (
-            f'chat_model = "{DEFAULT_CHAT_MODEL}"\n'
-            f'embed_model = "{DEFAULT_EMBED_MODEL}"\n'
+            f'chat_model = "{_escape_toml_string(config.chat_model)}"\n'
+            f'embed_model = "{_escape_toml_string(config.embed_model)}"\n'
         ),
         encoding="utf-8",
     )
+
+
+def write_default_config(paths: SiftPaths) -> None:
+    if paths.config_path.exists():
+        return
+    _write_config(paths, SiftConfig(DEFAULT_CHAT_MODEL, DEFAULT_EMBED_MODEL))
 
 
 def set_chat_model(paths: SiftPaths, chat_model: str) -> None:
     config = load_config(paths)
-    ensure_layout(paths)
-    paths.config_path.write_text(
-        (
-            f'chat_model = "{chat_model}"\n'
-            f'embed_model = "{config.embed_model}"\n'
-        ),
-        encoding="utf-8",
-    )
+    _write_config(paths, SiftConfig(chat_model, config.embed_model))
