@@ -154,7 +154,7 @@ def answer_question(
     chat_model: str,
 ) -> tuple[str, list[str]]:
     if not Path(db_dir).exists():
-        raise QuestionError("No index found. Run `lorag init` or `lorag sync`.")
+        raise QuestionError("No index found. Run `lorag sync`.")
 
     try:
         vector_store = get_vectorstore(docs_dir, db_dir, embed_model)

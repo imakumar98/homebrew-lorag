@@ -10,14 +10,14 @@ from lorag.paths import load_config
 
 
 class LoragCliTests(unittest.TestCase):
-    def test_init_creates_layout_and_runs_sync(self):
+    def test_sync_creates_layout_and_runs_export(self):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
             sync = Mock(return_value=(3, 1))
             stdout = io.StringIO()
 
             with redirect_stdout(stdout):
-                result = cli.main(["init"], home=home, sync_notes=sync)
+                result = cli.main(["sync"], home=home, sync_notes=sync)
 
             paths = cli.paths_for(home)
             self.assertEqual(result, 0)
@@ -29,18 +29,23 @@ class LoragCliTests(unittest.TestCase):
             self.assertEqual(args[0], paths.notes_dir)
             self.assertEqual(args[1], paths.db_dir)
 
-    def test_init_does_not_overwrite_chat_model(self):
+    def test_sync_does_not_overwrite_chat_model(self):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
-            cli.main(["init"], home=home, sync_notes=Mock(return_value=(0, 0)))
+            cli.main(["sync"], home=home, sync_notes=Mock(return_value=(0, 0)))
             from lorag.paths import set_chat_model, LoragPaths
 
             set_chat_model(LoragPaths.from_home(home), "qwen3.5:4b")
-            cli.main(["init"], home=home, sync_notes=Mock(return_value=(0, 0)))
+            cli.main(["sync"], home=home, sync_notes=Mock(return_value=(0, 0)))
             self.assertEqual(
                 load_config(LoragPaths.from_home(home)).chat_model,
                 "qwen3.5:4b",
             )
+
+    def test_init_is_not_a_command(self):
+        with redirect_stderr(io.StringIO()):
+            with self.assertRaisesRegex(SystemExit, "2"):
+                cli.main(["init"])
 
     def test_sync_reports_notes_error_to_stderr(self):
         from lorag.notes import NotesExportError
@@ -96,12 +101,12 @@ class LoragCliTests(unittest.TestCase):
                     ["q", "hello"],
                     home=Path(directory),
                     ask=Mock(side_effect=QuestionError(
-                        "No index found. Run `lorag init` or `lorag sync`."
+                        "No index found. Run `lorag sync`."
                     )),
                 )
 
         self.assertEqual(result, 1)
-        self.assertIn("lorag init", stderr.getvalue())
+        self.assertIn("lorag sync", stderr.getvalue())
 
     def test_q_without_query_is_an_error(self):
         with redirect_stderr(io.StringIO()):
@@ -112,7 +117,7 @@ class LoragCliTests(unittest.TestCase):
         stdout = io.StringIO()
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
-            cli.main(["init"], home=home, sync_notes=Mock(return_value=(0, 0)))
+            cli.main(["sync"], home=home, sync_notes=Mock(return_value=(0, 0)))
             with redirect_stdout(stdout):
                 result = cli.main(["model"], home=home)
 
@@ -123,7 +128,7 @@ class LoragCliTests(unittest.TestCase):
         pull = Mock()
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
-            cli.main(["init"], home=home, sync_notes=Mock(return_value=(0, 0)))
+            cli.main(["sync"], home=home, sync_notes=Mock(return_value=(0, 0)))
             result = cli.main(
                 ["model", "use", "qwen3.5:4b"],
                 home=home,
@@ -141,7 +146,7 @@ class LoragCliTests(unittest.TestCase):
         stderr = io.StringIO()
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
-            cli.main(["init"], home=home, sync_notes=Mock(return_value=(0, 0)))
+            cli.main(["sync"], home=home, sync_notes=Mock(return_value=(0, 0)))
             with redirect_stderr(stderr):
                 result = cli.main(
                     ["model", "use", "missing:model"],

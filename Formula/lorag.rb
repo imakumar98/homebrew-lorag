@@ -35,12 +35,12 @@ class Lorag < Formula
 
   def caveats
     <<~EOS
-      Start Ollama, pull the default models, then initialize:
+      Start Ollama, pull the default models, then sync:
 
         brew services start ollama
         ollama pull llama3.2:3b
         ollama pull nomic-embed-text
-        lorag init
+        lorag sync
     EOS
   end
 

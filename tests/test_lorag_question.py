@@ -13,7 +13,7 @@ class AnswerQuestionTests(unittest.TestCase):
 
             with self.assertRaisesRegex(
                 rag.QuestionError,
-                r"No index found\. Run `lorag init` or `lorag sync`\.",
+                r"No index found\. Run `lorag sync`\.",
             ):
                 rag.answer_question(
                     "What is ACATS?",

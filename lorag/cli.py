@@ -48,13 +48,9 @@ def pull_ollama_model(name: str) -> None:
         ) from error
 
 
-def cmd_init(paths: LoragPaths, sync_notes: SyncNotes) -> int:
+def cmd_sync(paths: LoragPaths, sync_notes: SyncNotes) -> int:
     ensure_layout(paths)
     write_default_config(paths)
-    return cmd_sync(paths, sync_notes)
-
-
-def cmd_sync(paths: LoragPaths, sync_notes: SyncNotes) -> int:
     try:
         exported, skipped = sync_notes(paths.notes_dir, paths.db_dir)
     except notes_cli.NotesExportError as error:
@@ -113,7 +109,6 @@ def main(
     parser = argparse.ArgumentParser(prog="lorag")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("init")
     sub.add_parser("sync")
     question = sub.add_parser("q")
     question.add_argument("query", nargs="+")
@@ -128,8 +123,6 @@ def main(
     pull_fn = pull_ollama_model if pull_model is None else pull_model
     ask_fn = rag.answer_question if ask is None else ask
 
-    if args.command == "init":
-        return cmd_init(paths, sync_fn)
     if args.command == "sync":
         return cmd_sync(paths, sync_fn)
     if args.command == "q":
