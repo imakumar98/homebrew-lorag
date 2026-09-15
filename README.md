@@ -20,7 +20,7 @@ Locked notes, notes Notes cannot read, and attachments are skipped. Only the pla
 
 ## Requirements
 
-- macOS on Apple Silicon
+- macOS
 - [Homebrew](https://brew.sh)
 - [Ollama](https://ollama.com) (installed as a Homebrew dependency)
 

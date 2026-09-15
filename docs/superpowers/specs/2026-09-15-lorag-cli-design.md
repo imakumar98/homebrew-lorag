@@ -47,7 +47,7 @@ That taps `imakumar98/homebrew-lorag` and installs `Formula/lorag.rb`. The formu
 2. `ollama pull llama3.2:3b` and `ollama pull nomic-embed-text`
 3. `lorag init`
 
-`brew upgrade lorag` upgrades the command. The formula is Apple Silicon only (arm64 wheels). Homebrew itself is not installed automatically.
+`brew upgrade lorag` upgrades the command. Homebrew itself is not installed automatically.
 
 ## Commands
 
