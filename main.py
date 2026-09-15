@@ -116,6 +116,52 @@ def build_agent(vector_store, chat_model: str):
     )
 
 
+class QuestionError(RuntimeError):
+    pass
+
+
+def answer_question(
+    query: str,
+    docs_dir: Path,
+    db_dir: Path,
+    embed_model: str,
+    chat_model: str,
+) -> tuple[str, list[str]]:
+    if not Path(db_dir).exists():
+        raise QuestionError("No index found. Run `sift init` or `sift sync`.")
+
+    try:
+        vector_store = get_vectorstore(docs_dir, db_dir, embed_model)
+        agent = build_agent(vector_store, chat_model)
+        result = agent.invoke({
+            "messages": [{"role": "user", "content": query}],
+            "context": [],
+        })
+    except QuestionError:
+        raise
+    except Exception as error:
+        text = str(error).lower()
+        if "connect" in text or "refused" in text:
+            raise QuestionError(
+                "Ollama is not running. Start Ollama and try again."
+            ) from error
+        if "not found" in text or "model" in text:
+            raise QuestionError(
+                "Chat model is missing. Run `sift model use <name>`."
+            ) from error
+        raise
+
+    answer = str(result["messages"][-1].content)
+    sources = []
+    seen = set()
+    for doc in result.get("context", []):
+        source = doc.metadata.get("source", "unknown")
+        if source not in seen:
+            sources.append(source)
+            seen.add(source)
+    return answer, sources
+
+
 def main():
     # Build retrieval backend and agent
     vector_store = get_vectorstore(Path(DOCS_DIR), Path(DB_DIR), EMBED_MODEL)
