@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import shutil
@@ -8,6 +9,11 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+
+
+PROJECT_ROOT = Path(__file__).resolve().parent
+DEFAULT_EXPORT_DIR = PROJECT_ROOT / "docs" / "apple-notes"
+DEFAULT_DB_DIR = PROJECT_ROOT / "db"
 
 
 _NOTES_EXPORT_JXA = r"""
@@ -142,3 +148,64 @@ def write_export(notes: list[AppleNote], export_dir: Path) -> None:
     except Exception:
         shutil.rmtree(staging, ignore_errors=True)
         raise
+
+
+def rebuild_index(docs_dir: Path, db_dir: Path) -> None:
+    import main as rag
+
+    rag.DOCS_DIR = docs_dir
+    rag.DB_DIR = db_dir
+    rag.get_vectorstore()
+
+
+def sync_notes(
+    export_dir: Path = DEFAULT_EXPORT_DIR,
+    db_dir: Path = DEFAULT_DB_DIR,
+    *,
+    fetch=fetch_notes,
+    rebuild=rebuild_index,
+) -> tuple[int, int]:
+    notes, skipped = fetch()
+    try:
+        write_export(notes, export_dir)
+    except NotesExportError:
+        raise
+    except Exception as error:
+        raise NotesExportError("Apple Notes export failed.") from error
+
+    try:
+        if db_dir.is_dir():
+            shutil.rmtree(db_dir)
+        elif db_dir.exists():
+            db_dir.unlink()
+        rebuild(export_dir.parent, db_dir)
+    except Exception as error:
+        raise NotesExportError(
+            "Notes were exported, but the index rebuild failed."
+        ) from error
+
+    return len(notes), skipped
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description="Sync Apple Notes into local RAG.")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers.add_parser("sync", help="Export notes and rebuild the index.")
+    args = parser.parse_args(argv)
+
+    if args.command == "sync":
+        try:
+            exported, skipped = sync_notes()
+        except NotesExportError as error:
+            print(f"Error: {error}", file=sys.stderr)
+            return 1
+        print(
+            f"Exported {exported} notes; skipped {skipped}; index rebuilt."
+        )
+        return 0
+
+    parser.error("a command is required")
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

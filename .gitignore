@@ -1,0 +1,4 @@
+db/
+docs/apple-notes/
+__pycache__/
+.worktrees/

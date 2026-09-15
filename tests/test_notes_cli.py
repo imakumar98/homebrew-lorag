@@ -1,8 +1,12 @@
 import hashlib
+import io
 import json
 import subprocess
+import sys
 import tempfile
+import types
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -308,6 +312,174 @@ class NoteExportTests(unittest.TestCase):
                 list(export_dir.parent.glob(".apple-notes-*")),
                 [],
             )
+
+    def test_project_defaults_are_relative_to_module(self):
+        project_root = Path(notes_cli.__file__).resolve().parent
+
+        self.assertEqual(notes_cli.DEFAULT_EXPORT_DIR, project_root / "docs" / "apple-notes")
+        self.assertEqual(notes_cli.DEFAULT_DB_DIR, project_root / "db")
+
+    def test_rebuild_index_wires_paths_to_main_module(self):
+        fake_rag = types.ModuleType("main")
+        fake_rag.get_vectorstore = Mock(return_value=object())
+        docs_dir = Path("/tmp/project/docs")
+        db_dir = Path("/tmp/project/db")
+
+        with patch.dict(sys.modules, {"main": fake_rag}):
+            notes_cli.rebuild_index(docs_dir, db_dir)
+
+        self.assertEqual(fake_rag.DOCS_DIR, docs_dir)
+        self.assertEqual(fake_rag.DB_DIR, db_dir)
+        fake_rag.get_vectorstore.assert_called_once_with()
+
+    def test_sync_fetches_exports_deletes_db_then_rebuilds(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            export_dir = root / "docs" / "apple-notes"
+            db_dir = root / "db"
+            db_dir.mkdir()
+            (db_dir / "old-index").write_text("old", encoding="utf-8")
+            notes = [notes_cli.AppleNote("1", "Private title", "Private body")]
+            events = []
+
+            def fetch():
+                events.append("fetch")
+                return notes, 2
+
+            real_write_export = notes_cli.write_export
+
+            def export(passed_notes, passed_export_dir):
+                events.append("export")
+                real_write_export(passed_notes, passed_export_dir)
+
+            def rebuild(docs_dir, passed_db_dir):
+                events.append(("rebuild", docs_dir, passed_db_dir, db_dir.exists()))
+
+            with patch("notes_cli.write_export", side_effect=export):
+                exported, skipped = notes_cli.sync_notes(
+                    export_dir,
+                    db_dir,
+                    fetch=fetch,
+                    rebuild=rebuild,
+                )
+
+            self.assertEqual(
+                events,
+                ["fetch", "export", ("rebuild", export_dir.parent, db_dir, False)],
+            )
+            self.assertEqual((exported, skipped), (1, 2))
+            self.assertTrue(export_dir.exists())
+
+    def test_sync_preserves_db_when_fetch_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            db_dir = root / "db"
+            db_dir.mkdir()
+            marker = db_dir / "keep"
+            marker.write_text("old", encoding="utf-8")
+            rebuild = Mock()
+
+            with self.assertRaises(notes_cli.NotesExportError):
+                notes_cli.sync_notes(
+                    root / "docs" / "apple-notes",
+                    db_dir,
+                    fetch=Mock(side_effect=notes_cli.NotesExportError("safe failure")),
+                    rebuild=rebuild,
+                )
+
+            self.assertTrue(marker.exists())
+            rebuild.assert_not_called()
+
+    def test_sync_preserves_db_when_export_staging_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            db_dir = root / "db"
+            db_dir.mkdir()
+            marker = db_dir / "keep"
+            marker.write_text("old", encoding="utf-8")
+            rebuild = Mock()
+
+            with patch("notes_cli.write_export", side_effect=OSError("disk full")):
+                with self.assertRaisesRegex(
+                    notes_cli.NotesExportError,
+                    "^Apple Notes export failed\\.$",
+                ):
+                    notes_cli.sync_notes(
+                        root / "docs" / "apple-notes",
+                        db_dir,
+                        fetch=Mock(return_value=([], 0)),
+                        rebuild=rebuild,
+                    )
+
+            self.assertTrue(marker.exists())
+            rebuild.assert_not_called()
+
+    def test_sync_wraps_rebuild_failure_without_sensitive_text(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            export_dir = root / "docs" / "apple-notes"
+            sensitive = "private embedding credentials"
+
+            with self.assertRaises(notes_cli.NotesExportError) as caught:
+                notes_cli.sync_notes(
+                    export_dir,
+                    root / "db",
+                    fetch=Mock(
+                        return_value=(
+                            [notes_cli.AppleNote("1", "Secret title", "Secret body")],
+                            0,
+                        )
+                    ),
+                    rebuild=Mock(side_effect=RuntimeError(sensitive)),
+                )
+
+            self.assertEqual(
+                str(caught.exception),
+                "Notes were exported, but the index rebuild failed.",
+            )
+            self.assertNotIn(sensitive, str(caught.exception))
+            self.assertTrue(export_dir.exists())
+
+    def test_main_sync_prints_only_safe_counts_and_status(self):
+        stdout = io.StringIO()
+        note_content = "Secret title and body"
+
+        with patch("notes_cli.sync_notes", return_value=(4, 1)):
+            with redirect_stdout(stdout):
+                result = notes_cli.main(["sync"])
+
+        self.assertEqual(result, 0)
+        self.assertIn("4", stdout.getvalue())
+        self.assertIn("1", stdout.getvalue())
+        self.assertIn("index rebuilt", stdout.getvalue().lower())
+        self.assertNotIn(note_content, stdout.getvalue())
+
+    def test_main_reports_safe_error_to_stderr(self):
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        safe_message = "Notes were exported, but the index rebuild failed."
+
+        with patch(
+            "notes_cli.sync_notes",
+            side_effect=notes_cli.NotesExportError(safe_message),
+        ):
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                result = notes_cli.main(["sync"])
+
+        self.assertEqual(result, 1)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertIn(safe_message, stderr.getvalue())
+
+    def test_main_requires_subcommand_and_supports_help(self):
+        with redirect_stderr(io.StringIO()):
+            with self.assertRaisesRegex(SystemExit, "2"):
+                notes_cli.main([])
+
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            with self.assertRaisesRegex(SystemExit, "0"):
+                notes_cli.main(["--help"])
+        self.assertIn("sync", stdout.getvalue())
 
 
 if __name__ == "__main__":
