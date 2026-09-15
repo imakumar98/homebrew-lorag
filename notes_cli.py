@@ -155,12 +155,14 @@ def write_export(notes: list[AppleNote], export_dir: Path) -> None:
         raise
 
 
-def rebuild_index(docs_dir: Path, db_dir: Path) -> None:
+def rebuild_index(
+    docs_dir: Path,
+    db_dir: Path,
+    embed_model: str = "nomic-embed-text",
+) -> None:
     import main as rag
 
-    rag.DOCS_DIR = docs_dir
-    rag.DB_DIR = db_dir
-    rag.get_vectorstore()
+    rag.get_vectorstore(docs_dir, db_dir, embed_model)
 
 
 def _unused_hidden_path(parent: Path, prefix: str) -> Path:

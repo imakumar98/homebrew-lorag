@@ -335,11 +335,13 @@ class NoteExportTests(unittest.TestCase):
         db_dir = Path("/tmp/project/db")
 
         with patch.dict(sys.modules, {"main": fake_rag}):
-            notes_cli.rebuild_index(docs_dir, db_dir)
+            notes_cli.rebuild_index(docs_dir, db_dir, "nomic-embed-text")
 
-        self.assertEqual(fake_rag.DOCS_DIR, docs_dir)
-        self.assertEqual(fake_rag.DB_DIR, db_dir)
-        fake_rag.get_vectorstore.assert_called_once_with()
+        fake_rag.get_vectorstore.assert_called_once_with(
+            docs_dir,
+            db_dir,
+            "nomic-embed-text",
+        )
 
     def test_sync_builds_staging_then_swaps_existing_db(self):
         with tempfile.TemporaryDirectory() as directory:
