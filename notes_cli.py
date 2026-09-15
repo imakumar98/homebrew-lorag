@@ -3,9 +3,36 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+import subprocess
+import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+
+
+_NOTES_EXPORT_JXA = r"""
+const Notes = Application("Notes");
+const exported = [];
+let skipped = 0;
+
+for (const note of Notes.notes()) {
+    try {
+        if (note.passwordProtected()) {
+            skipped += 1;
+            continue;
+        }
+        exported.push({
+            id: String(note.id()),
+            title: String(note.name() || ""),
+            body: String(note.plaintext() || "")
+        });
+    } catch (error) {
+        skipped += 1;
+    }
+}
+
+JSON.stringify({notes: exported, skipped});
+""".strip()
 
 
 class NotesExportError(RuntimeError):
@@ -52,6 +79,30 @@ def parse_export_payload(payload: str) -> tuple[list[AppleNote], int]:
         return notes, skipped
     except (KeyError, TypeError, ValueError) as error:
         raise NotesExportError("Notes returned invalid export data.") from error
+
+
+def fetch_notes() -> tuple[list[AppleNote], int]:
+    if sys.platform != "darwin":
+        raise NotesExportError("Apple Notes sync is macOS-only.")
+
+    try:
+        result = subprocess.run(
+            ["osascript", "-l", "JavaScript", _NOTES_EXPORT_JXA],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError as error:
+        raise NotesExportError(
+            "Apple Notes sync failed because osascript is unavailable."
+        ) from error
+    except subprocess.CalledProcessError as error:
+        raise NotesExportError(
+            "Apple Notes sync needs macOS Automation permission. Allow access "
+            "under System Settings > Privacy & Security > Automation."
+        ) from error
+
+    return parse_export_payload(result.stdout)
 
 
 def note_filename(note_id: str) -> str:

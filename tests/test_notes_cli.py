@@ -1,15 +1,102 @@
 import hashlib
 import json
+import subprocess
 import tempfile
 import unittest
 from dataclasses import FrozenInstanceError
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import notes_cli
 
 
 class NoteExportTests(unittest.TestCase):
+    @patch("notes_cli.subprocess.run")
+    def test_fetch_notes_runs_jxa_and_returns_export(self, run):
+        run.return_value = Mock(
+            stdout=json.dumps(
+                {
+                    "notes": [
+                        {"id": "note/1", "title": "Ideas", "body": "Build it"}
+                    ],
+                    "skipped": 3,
+                }
+            )
+        )
+
+        with patch("notes_cli.sys.platform", "darwin"):
+            notes, skipped = notes_cli.fetch_notes()
+
+        self.assertEqual(
+            notes,
+            [notes_cli.AppleNote("note/1", "Ideas", "Build it")],
+        )
+        self.assertEqual(skipped, 3)
+        run.assert_called_once()
+        args, kwargs = run.call_args
+        self.assertEqual(args[0][:3], ["osascript", "-l", "JavaScript"])
+        self.assertEqual(len(args[0]), 4)
+        self.assertIn("Notes.notes()", args[0][3])
+        self.assertIn("note.passwordProtected()", args[0][3])
+        self.assertIn("String(note.id())", args[0][3])
+        self.assertIn('String(note.name() || "")', args[0][3])
+        self.assertIn('String(note.plaintext() || "")', args[0][3])
+        self.assertIn("JSON.stringify({notes: exported, skipped})", args[0][3])
+        self.assertEqual(
+            kwargs,
+            {"check": True, "capture_output": True, "text": True},
+        )
+
+    @patch("notes_cli.subprocess.run")
+    def test_fetch_notes_rejects_non_macos_without_subprocess(self, run):
+        with patch("notes_cli.sys.platform", "linux"):
+            with self.assertRaisesRegex(
+                notes_cli.NotesExportError,
+                "macOS-only",
+            ):
+                notes_cli.fetch_notes()
+
+        run.assert_not_called()
+
+    @patch("notes_cli.subprocess.run", side_effect=FileNotFoundError)
+    def test_fetch_notes_reports_missing_osascript(self, run):
+        with patch("notes_cli.sys.platform", "darwin"):
+            with self.assertRaisesRegex(
+                notes_cli.NotesExportError,
+                "osascript is unavailable",
+            ):
+                notes_cli.fetch_notes()
+
+    @patch("notes_cli.subprocess.run")
+    def test_fetch_notes_reports_automation_permission_failure(self, run):
+        run.side_effect = subprocess.CalledProcessError(
+            1,
+            ["osascript"],
+            stderr="private note content",
+        )
+
+        with patch("notes_cli.sys.platform", "darwin"):
+            with self.assertRaises(notes_cli.NotesExportError) as caught:
+                notes_cli.fetch_notes()
+
+        message = str(caught.exception)
+        self.assertIn(
+            "System Settings > Privacy & Security > Automation",
+            message,
+        )
+        self.assertNotIn("private note content", message)
+
+    @patch("notes_cli.subprocess.run")
+    def test_fetch_notes_rejects_invalid_stdout(self, run):
+        run.return_value = Mock(stdout="not json")
+
+        with patch("notes_cli.sys.platform", "darwin"):
+            with self.assertRaisesRegex(
+                notes_cli.NotesExportError,
+                "^Notes returned invalid export data\\.$",
+            ):
+                notes_cli.fetch_notes()
+
     def test_apple_note_is_frozen(self):
         note = notes_cli.AppleNote("1", "Title", "Body")
 
