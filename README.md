@@ -1,4 +1,4 @@
-# lorag
+# LocalRag(lorag)
 
 Ask questions about files on your Mac and your Apple Notes. Answers stay local: Ollama runs the models, Chroma stores the index, and nothing is sent to a cloud API.
 
