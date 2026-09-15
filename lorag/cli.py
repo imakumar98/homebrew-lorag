@@ -40,7 +40,7 @@ def pull_ollama_model(name: str) -> None:
         )
     except FileNotFoundError as error:
         raise ModelPullError(
-            "Ollama is not installed. Run ./install-lorag."
+            "Ollama is not installed. Install it with `brew install ollama`."
         ) from error
     except subprocess.CalledProcessError as error:
         raise ModelPullError(
