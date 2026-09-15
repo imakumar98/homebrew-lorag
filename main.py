@@ -145,7 +145,7 @@ def answer_question(
             raise QuestionError(
                 "Ollama is not running. Start Ollama and try again."
             ) from error
-        if "not found" in text or "model" in text:
+        if "model" in text and "not found" in text:
             raise QuestionError(
                 "Chat model is missing. Run `sift model use <name>`."
             ) from error
