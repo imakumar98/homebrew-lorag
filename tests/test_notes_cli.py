@@ -319,6 +319,15 @@ class NoteExportTests(unittest.TestCase):
         self.assertEqual(notes_cli.DEFAULT_EXPORT_DIR, project_root / "docs" / "apple-notes")
         self.assertEqual(notes_cli.DEFAULT_DB_DIR, project_root / "db")
 
+    def test_gitignore_protects_transaction_artifacts(self):
+        project_root = Path(notes_cli.__file__).resolve().parent
+        patterns = (project_root / ".gitignore").read_text(encoding="utf-8").splitlines()
+
+        self.assertIn("docs/.apple-notes-*", patterns)
+        self.assertIn("docs/.apple-notes-backup-*", patterns)
+        self.assertIn(".db-staging-*", patterns)
+        self.assertIn(".db-backup-*", patterns)
+
     def test_rebuild_index_wires_paths_to_main_module(self):
         fake_rag = types.ModuleType("main")
         fake_rag.get_vectorstore = Mock(return_value=object())
@@ -332,13 +341,14 @@ class NoteExportTests(unittest.TestCase):
         self.assertEqual(fake_rag.DB_DIR, db_dir)
         fake_rag.get_vectorstore.assert_called_once_with()
 
-    def test_sync_fetches_exports_deletes_db_then_rebuilds(self):
+    def test_sync_builds_staging_then_swaps_existing_db(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             export_dir = root / "docs" / "apple-notes"
             db_dir = root / "db"
             db_dir.mkdir()
-            (db_dir / "old-index").write_text("old", encoding="utf-8")
+            old_index = db_dir / "old-index"
+            old_index.write_text("old", encoding="utf-8")
             notes = [notes_cli.AppleNote("1", "Private title", "Private body")]
             events = []
 
@@ -352,8 +362,19 @@ class NoteExportTests(unittest.TestCase):
                 events.append("export")
                 real_write_export(passed_notes, passed_export_dir)
 
-            def rebuild(docs_dir, passed_db_dir):
-                events.append(("rebuild", docs_dir, passed_db_dir, db_dir.exists()))
+            def rebuild(docs_dir, staging_db_dir):
+                events.append(
+                    (
+                        "rebuild",
+                        docs_dir,
+                        staging_db_dir.parent,
+                        staging_db_dir.name.startswith(".db-staging-"),
+                        staging_db_dir.exists(),
+                        old_index.exists(),
+                    )
+                )
+                staging_db_dir.mkdir()
+                (staging_db_dir / "new-index").write_text("new", encoding="utf-8")
 
             with patch("notes_cli.write_export", side_effect=export):
                 exported, skipped = notes_cli.sync_notes(
@@ -365,10 +386,122 @@ class NoteExportTests(unittest.TestCase):
 
             self.assertEqual(
                 events,
-                ["fetch", "export", ("rebuild", export_dir.parent, db_dir, False)],
+                [
+                    "fetch",
+                    "export",
+                    ("rebuild", export_dir.parent, root, True, False, True),
+                ],
             )
             self.assertEqual((exported, skipped), (1, 2))
             self.assertTrue(export_dir.exists())
+            self.assertFalse(old_index.exists())
+            self.assertEqual(
+                (db_dir / "new-index").read_text(encoding="utf-8"),
+                "new",
+            )
+            self.assertEqual(list(root.glob(".db-*")), [])
+
+    def test_sync_preserves_existing_db_when_rebuild_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            db_dir = root / "db"
+            db_dir.mkdir()
+            old_index = db_dir / "old-index"
+            old_index.write_text("old", encoding="utf-8")
+
+            def fail_rebuild(_docs_dir, staging_db_dir):
+                self.assertFalse(staging_db_dir.exists())
+                staging_db_dir.mkdir()
+                (staging_db_dir / "partial").write_text("partial", encoding="utf-8")
+                raise RuntimeError("sensitive rebuild details")
+
+            with self.assertRaisesRegex(
+                notes_cli.NotesExportError,
+                "^Notes were exported, but the index rebuild failed\\.$",
+            ):
+                notes_cli.sync_notes(
+                    root / "docs" / "apple-notes",
+                    db_dir,
+                    fetch=Mock(return_value=([], 0)),
+                    rebuild=fail_rebuild,
+                )
+
+            self.assertEqual(old_index.read_text(encoding="utf-8"), "old")
+            self.assertEqual(list(root.glob(".db-*")), [])
+
+    def test_sync_restores_existing_db_when_final_swap_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            db_dir = root / "db"
+            db_dir.mkdir()
+            old_index = db_dir / "old-index"
+            old_index.write_text("old", encoding="utf-8")
+            original_replace = Path.replace
+
+            def rebuild(_docs_dir, staging_db_dir):
+                staging_db_dir.mkdir()
+                (staging_db_dir / "new-index").write_text("new", encoding="utf-8")
+
+            def fail_staging_swap(source, target):
+                if source.name.startswith(".db-staging-") and target == db_dir:
+                    raise OSError("sensitive rename details")
+                return original_replace(source, target)
+
+            with patch.object(Path, "replace", new=fail_staging_swap):
+                with self.assertRaisesRegex(
+                    notes_cli.NotesExportError,
+                    "^Notes were exported, but the index rebuild failed\\.$",
+                ):
+                    notes_cli.sync_notes(
+                        root / "docs" / "apple-notes",
+                        db_dir,
+                        fetch=Mock(return_value=([], 0)),
+                        rebuild=rebuild,
+                    )
+
+            self.assertEqual(old_index.read_text(encoding="utf-8"), "old")
+            self.assertEqual(list(root.glob(".db-*")), [])
+
+    def test_sync_promotes_staging_when_no_old_db_exists(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            db_dir = root / "db"
+
+            def rebuild(_docs_dir, staging_db_dir):
+                self.assertFalse(db_dir.exists())
+                self.assertFalse(staging_db_dir.exists())
+                staging_db_dir.mkdir()
+                (staging_db_dir / "new-index").write_text("new", encoding="utf-8")
+
+            result = notes_cli.sync_notes(
+                root / "docs" / "apple-notes",
+                db_dir,
+                fetch=Mock(return_value=([], 3)),
+                rebuild=rebuild,
+            )
+
+            self.assertEqual(result, (0, 3))
+            self.assertTrue((db_dir / "new-index").exists())
+            self.assertEqual(list(root.glob(".db-*")), [])
+
+    def test_sync_resolves_injected_defaults_at_call_time(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            export_dir = root / "docs" / "apple-notes"
+            db_dir = root / "db"
+
+            def rebuild(_docs_dir, staging_db_dir):
+                staging_db_dir.mkdir()
+
+            with (
+                patch("notes_cli.fetch_notes", return_value=([], 4)) as fetch,
+                patch("notes_cli.rebuild_index", side_effect=rebuild) as rebuild_mock,
+            ):
+                result = notes_cli.sync_notes(export_dir, db_dir)
+
+            self.assertEqual(result, (0, 4))
+            fetch.assert_called_once_with()
+            rebuild_mock.assert_called_once()
 
     def test_sync_preserves_db_when_fetch_fails(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -439,6 +572,8 @@ class NoteExportTests(unittest.TestCase):
             )
             self.assertNotIn(sensitive, str(caught.exception))
             self.assertTrue(export_dir.exists())
+            self.assertFalse((root / "db").exists())
+            self.assertEqual(list(root.glob(".db-*")), [])
 
     def test_main_sync_prints_only_safe_counts_and_status(self):
         stdout = io.StringIO()

@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -46,6 +47,10 @@ class AppleNote:
     note_id: str
     title: str
     body: str
+
+
+FetchNotes = Callable[[], tuple[list[AppleNote], int]]
+RebuildIndex = Callable[[Path, Path], None]
 
 
 def parse_export_payload(payload: str) -> tuple[list[AppleNote], int]:
@@ -158,14 +163,79 @@ def rebuild_index(docs_dir: Path, db_dir: Path) -> None:
     rag.get_vectorstore()
 
 
+def _unused_hidden_path(parent: Path, prefix: str) -> Path:
+    parent.mkdir(parents=True, exist_ok=True)
+    path = Path(tempfile.mkdtemp(prefix=prefix, dir=parent))
+    path.rmdir()
+    return path
+
+
+def _remove_path(path: Path) -> None:
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path, ignore_errors=True)
+    elif path.exists() or path.is_symlink():
+        try:
+            path.unlink()
+        except OSError:
+            pass
+
+
+def _refresh_index(
+    docs_dir: Path,
+    db_dir: Path,
+    rebuild: RebuildIndex,
+) -> None:
+    staging = _unused_hidden_path(
+        db_dir.parent,
+        f".{db_dir.name}-staging-",
+    )
+    backup: Path | None = None
+
+    try:
+        rebuild(docs_dir, staging)
+        if not staging.exists():
+            raise RuntimeError("Index rebuild did not create a database.")
+
+        if db_dir.exists() or db_dir.is_symlink():
+            backup = _unused_hidden_path(
+                db_dir.parent,
+                f".{db_dir.name}-backup-",
+            )
+            db_dir.replace(backup)
+
+        try:
+            staging.replace(db_dir)
+        except Exception:
+            if backup is not None:
+                backup.replace(db_dir)
+            raise
+
+        if backup is not None:
+            _remove_path(backup)
+    except Exception:
+        _remove_path(staging)
+        if (
+            backup is not None
+            and (backup.exists() or backup.is_symlink())
+            and not (db_dir.exists() or db_dir.is_symlink())
+        ):
+            backup.replace(db_dir)
+        if backup is not None:
+            _remove_path(backup)
+        raise
+
+
 def sync_notes(
     export_dir: Path = DEFAULT_EXPORT_DIR,
     db_dir: Path = DEFAULT_DB_DIR,
     *,
-    fetch=fetch_notes,
-    rebuild=rebuild_index,
+    fetch: FetchNotes | None = None,
+    rebuild: RebuildIndex | None = None,
 ) -> tuple[int, int]:
-    notes, skipped = fetch()
+    fetch_fn = fetch_notes if fetch is None else fetch
+    rebuild_fn = rebuild_index if rebuild is None else rebuild
+
+    notes, skipped = fetch_fn()
     try:
         write_export(notes, export_dir)
     except NotesExportError:
@@ -174,11 +244,7 @@ def sync_notes(
         raise NotesExportError("Apple Notes export failed.") from error
 
     try:
-        if db_dir.is_dir():
-            shutil.rmtree(db_dir)
-        elif db_dir.exists():
-            db_dir.unlink()
-        rebuild(export_dir.parent, db_dir)
+        _refresh_index(export_dir.parent, db_dir, rebuild_fn)
     except Exception as error:
         raise NotesExportError(
             "Notes were exported, but the index rebuild failed."

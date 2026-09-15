@@ -1,4 +1,8 @@
 db/
 docs/apple-notes/
+docs/.apple-notes-*
+docs/.apple-notes-backup-*
+.db-staging-*
+.db-backup-*
 __pycache__/
 .worktrees/
