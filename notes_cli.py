@@ -87,7 +87,7 @@ def fetch_notes() -> tuple[list[AppleNote], int]:
 
     try:
         result = subprocess.run(
-            ["osascript", "-l", "JavaScript", _NOTES_EXPORT_JXA],
+            ["osascript", "-l", "JavaScript", "-e", _NOTES_EXPORT_JXA],
             check=True,
             capture_output=True,
             text=True,

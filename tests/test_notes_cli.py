@@ -34,14 +34,22 @@ class NoteExportTests(unittest.TestCase):
         self.assertEqual(skipped, 3)
         run.assert_called_once()
         args, kwargs = run.call_args
-        self.assertEqual(args[0][:3], ["osascript", "-l", "JavaScript"])
-        self.assertEqual(len(args[0]), 4)
-        self.assertIn("Notes.notes()", args[0][3])
-        self.assertIn("note.passwordProtected()", args[0][3])
-        self.assertIn("String(note.id())", args[0][3])
-        self.assertIn('String(note.name() || "")', args[0][3])
-        self.assertIn('String(note.plaintext() || "")', args[0][3])
-        self.assertIn("JSON.stringify({notes: exported, skipped})", args[0][3])
+        self.assertEqual(
+            args[0],
+            [
+                "osascript",
+                "-l",
+                "JavaScript",
+                "-e",
+                notes_cli._NOTES_EXPORT_JXA,
+            ],
+        )
+        self.assertIn("Notes.notes()", args[0][4])
+        self.assertIn("note.passwordProtected()", args[0][4])
+        self.assertIn("String(note.id())", args[0][4])
+        self.assertIn('String(note.name() || "")', args[0][4])
+        self.assertIn('String(note.plaintext() || "")', args[0][4])
+        self.assertIn("JSON.stringify({notes: exported, skipped})", args[0][4])
         self.assertEqual(
             kwargs,
             {"check": True, "capture_output": True, "text": True},
