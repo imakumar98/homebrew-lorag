@@ -5,7 +5,7 @@ Ask questions about files on your Mac and your Apple Notes. Answers stay local: 
 Drop `.txt`, `.md`, and `.pdf` files into `~/lorag/docs`, then:
 
 ```text
-lorag q What did I write about the Q3 plan?
+lorag q "What did I write about the Q3 plan?"
 ```
 
 macOS only.
@@ -28,10 +28,10 @@ brew upgrade lorag
 ## Usage
 
 ```bash
-lorag sync                          # export Notes and rebuild the index
-lorag q What is the ACATS fee?      # one-shot question (quotes optional)
-lorag model                         # show the current chat model
-lorag model use qwen3.5:4b          # pull a model and use it for answers
+lorag sync                                # export Notes and rebuild the index
+lorag q "What is the ACATS fee?"          # quote the question
+lorag model                               # show the current chat model
+lorag model use qwen3.5:4b                # pull a model and use it for answers
 ```
 
 Add your own files later:
@@ -39,8 +39,10 @@ Add your own files later:
 ```bash
 cp notes.md ~/lorag/docs/
 lorag sync
-lorag q Summarize notes.md
+lorag q "Summarize notes.md"
 ```
+
+Quote the question. In zsh, `?` and `*` are globs, so `lorag q what is acats?` fails before lorag runs.
 
 `lorag q` needs an index. Run `lorag sync` first.
 
