@@ -1,8 +1,8 @@
 class Lorag < Formula
   desc "Ask questions over local documents and Apple Notes"
   homepage "https://github.com/imakumar98/homebrew-lorag"
-  url "https://github.com/imakumar98/homebrew-lorag/archive/refs/tags/v0.1.0.tar.gz"
-  sha256 "06de9d410f579e6ec3600a6a02ff72d11f73a46434dc366a08fd99dc41eab745"
+  url "https://github.com/imakumar98/homebrew-lorag/archive/refs/tags/v0.2.0.tar.gz"
+  sha256 "55e2216e99e9f6458474410d072aa620a6028eada1d2cd872f63eff3a3607f09"
   license :cannot_represent
   head "https://github.com/imakumar98/homebrew-lorag.git", branch: "main"
 
