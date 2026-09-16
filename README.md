@@ -1,6 +1,6 @@
 # LocalRag(lorag)
 
-Ask questions about files on your Mac and your Apple Notes. Answers stay local: Ollama runs the models, Chroma stores the index, and nothing is sent to a cloud API.
+Ask questions about files on your Mac and your Apple Notes. Answers stay local: a Go CLI talks to Ollama, the index lives on disk, and nothing is sent to a cloud API.
 
 Drop `.txt`, `.md`, and `.pdf` files into `~/lorag/docs`, then:
 
@@ -14,11 +14,10 @@ macOS only.
 
 ```bash
 brew install imakumar98/lorag/lorag
-brew services start ollama
-ollama pull llama3.2:3b
-ollama pull nomic-embed-text
 lorag sync
 ```
+
+Install starts Ollama and downloads the default models (`llama3.2:3b` and `nomic-embed-text`). That can take a few minutes.
 
 `lorag sync` creates `~/lorag/docs`, exports Apple Notes, and builds the index. macOS may ask for Notes permission; allow it, then run `lorag sync` again.
 
@@ -31,6 +30,8 @@ brew upgrade lorag
 ```bash
 lorag sync                          # export Notes and rebuild the index
 lorag q What is the ACATS fee?      # one-shot question (quotes optional)
+lorag model                         # show the current chat model
+lorag model use qwen3.5:4b          # pull a model and use it for answers
 ```
 
 Add your own files later:
@@ -50,8 +51,18 @@ lorag q Summarize notes.md
 | `~/lorag/docs` | Your documents (`.txt`, `.md`, `.pdf`) |
 | `~/lorag/docs/apple-notes/` | Exported Apple Notes |
 | `~/lorag/database` | Vector index |
+| `~/.lorag/config.toml` | Chat and embedding model names |
 
 Your own files under `~/lorag/docs` are kept. The `apple-notes/` folder is replaced on each successful Notes export. Locked notes and attachments are skipped.
+
+## Build from source
+
+```bash
+go build -o lorag ./cmd/lorag
+./lorag sync
+```
+
+Requires Go 1.24+ and Ollama.
 
 ## Uninstall
 

@@ -4,9 +4,6 @@ docs/.apple-notes-*
 docs/.apple-notes-backup-*
 .db-staging-*
 .db-backup-*
-__pycache__/
 .worktrees/
-*.egg-info/
-dist/
-build/
-venv/
+/lorag
+
