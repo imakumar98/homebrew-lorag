@@ -1,9 +1,1 @@
-db/
-docs/apple-notes/
-docs/.apple-notes-*
-docs/.apple-notes-backup-*
-.db-staging-*
-.db-backup-*
-.worktrees/
-/lorag
-
+.DS_Store
